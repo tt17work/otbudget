@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Budget Monitor</title>
+    <style>
+        body { font-family: sans-serif; margin: 0; padding: 20px; background-color: #f4f4f9; }
+        .container { max-width: 1000px; margin: auto; background: white; padding: 20px; border-radius: 8px; box-shadow: 0 0 10px rgba(0,0,0,0.1); }
+        #login-screen, #main-app { padding: 20px; }
+        #main-app { display: none; } /* Hidden by default */
+        input { width: calc(100% - 10px); padding: 8px; margin-bottom: 10px; }
+        button { padding: 10px 15px; border: none; background-color: #007bff; color: white; cursor: pointer; border-radius: 4px; }
+        button:hover { background-color: #0056b3; }
+        .logout-btn { background-color: #dc3545; }
+        table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+        th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
+        th { background-color: #f2f2f2; }
+        .add-btn { margin-top: 15px; background-color: #28a745; }
+        .confirm-btn { background-color: #28a745; }
+        .edit-btn { background-color: #ffc107; color: black;}
+        .delete-btn { background-color: #dc3545; }
+        .budget-section { margin-top: 30px; }
+        .hidden-input-row { display: none; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <!-- ===== LOGIN SCREEN ===== -->
+    <div id="login-screen">
+        <h1>Budget Monitoring System Login</h1>
+        <input type="text" id="username" placeholder="Account Name" value="admin">
+        <input type="password" id="password" placeholder="Password" value="ottph88!">
+        <button id="login-btn">Login</button>
+    </div>
+
+    <!-- ===== MAIN APPLICATION ===== -->
+    <div id="main-app">
+        <div style="display: flex; justify-content: space-between; align-items: center;">
+            <h2 id="welcome-message">Welcome!</h2>
+            <button id="logout-btn" class="logout-btn">Logout</button>
+        </div>
+        
+        <!-- Psychiatric Budget Section -->
+        <div id="psy-section" class="budget-section" style="display:none;">
+            <h3>Psychiatric Budget</h3>
+            <p><strong>Total Budget:</strong> <span id="psy-total"></span> | <strong>Remaining:</strong> <span id="psy-remaining"></span></p>
+            <table id="psy-table">
+                <thead>
+                    <tr><th>Date</th><th>Therapist</th><th>Items</th><th>$</th><th>Remaining $</th><th class="admin-only">Actions</th></tr>
+                </thead>
+                <tbody></tbody>
+            </table>
+            <button class="add-btn" data-category="psy">Add New Entry</button>
+        </div>
+
+        <!-- Physical Budget Section -->
+        <div id="phy-section" class="budget-section" style="display:none;">
+            <h3>Physical Budget</h3>
+            <p><strong>Total Budget:</strong> <span id="phy-total"></span> | <strong>Remaining:</strong> <span id="phy-remaining"></span></p>
+            <table id="phy-table">
+                <thead>
+                    <tr><th>Date</th><th>Therapist</th><th>Items</th><th>$</th><th>Remaining $</th><th class="admin-only">Actions</th></tr>
+                </thead>
+                <tbody></tbody>
+            </table>
+            <button class="add-btn" data-category="phy">Add New Entry</button>
+        </div>
+    </div>
+</div>
+
+<script>
+// --- GLOBAL STATE ---
+let USER_ROLE = null;
+
+// --- DOM ELEMENTS ---
+const loginScreen = document.getElementById('login-screen');
+const mainApp = document.getElementById('main-app');
+const loginBtn = document.getElementById('login-btn');
+const logoutBtn = document.getElementById('logout-btn');
+
+// --- EVENT LISTENERS ---
+loginBtn.addEventListener('click', handleLogin);
+logoutBtn.addEventListener('click', handleLogout);
+mainApp.addEventListener('click', handleTableActions);
+
+
+// --- FUNCTIONS ---
+
+// 1. Handle User Login
+async function handleLogin() {
+    const username = document.getElementById('username').value;
+    const password = document.getElementById('password').value;
+
+    // This URL assumes the Flask backend is running on the same machine on port 5000
+    const response = await fetch('/api/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username, password })
+    });
+
+    const data = await response.json();
+
+    if (data.success) {
+        USER_ROLE = data.role;
+        document.getElementById('welcome-message').innerText = `Welcome, ${username} (Role: ${USER_ROLE})`;
+        loginScreen.style.display = 'none';
+        mainApp.style.display = 'block';
+        loadBudgetsForRole();
+    } else {
+        alert(data.message);
+    }
+}
+
+// 2. Load Budgets based on User Role
+function loadBudgetsForRole() {
+    // Hide all sections first
+    document.getElementById('psy-section').style.display = 'none';
+    document.getElementById('phy-section').style.display = 'none';
+    
+    // Show sections based on role
+    if (USER_ROLE === 'psy') {
+        document.getElementById('psy-section').style.display = 'block';
+        fetchAndDisplayBudget('psychiatric');
+    } else if (USER_ROLE === 'phy') {
+        document.getElementById('phy-section').style.display = 'block';
+        fetchAndDisplayBudget('physical');
+    } else if (USER_ROLE === 'admin') {
+        // Admins see everything
+        document.getElementById('psy-section').style.display = 'block';
+        document.getElementById('phy-section').style.display = 'block';
+        document.querySelectorAll('.admin-only').forEach(el => el.style.display = 'table-cell');
+        fetchAndDisplayBudget('psychiatric');
+        fetchAndDisplayBudget('physical');
+    }
+}
+
+// 3. Fetch and Render Budget Data in a Table
+async function fetchAndDisplayBudget(category) {
+    const response = await fetch(`/api/budget/${category}`);
+    const data = await response.json();
+    
+    const tableBody = document.querySelector(`#${category.slice(0,3)}-table tbody`);
+    tableBody.innerHTML = ''; // Clear existing rows
+
+    document.getElementById(`${category.slice(0,3)}-total`).innerText = `$${data.total.toFixed(2)}`;
+    document.getElementById(`${category.slice(0,3)}-remaining`).innerText = `$${data.remaining.toFixed(2)}`;
+
+    let runningBalance = data.total;
+    for (const tx of data.transactions) {
+        runningBalance -= tx.amount;
+        const row = document.createElement('tr');
+        row.innerHTML = `
+            <td>${tx.date}</td>
+            <td>${tx.therapist}</td>
+            <td>${tx.item}</td>
+            <td>$${tx.amount.toFixed(2)}</td>
+            <td>$${runningBalance.toFixed(2)}</td>
+            <td class="admin-only" style="${USER_ROLE !== 'admin' ? 'display:none' : ''}">
+                <button class="edit-btn" data-id="${tx.id}">Edit</button>
+            </td>
+        `;
+        tableBody.appendChild(row);
+    }
+}
+
+// 4. Handle clicks for Add/Confirm buttons
+function handleTableActions(event) {
+    const target = event.target;
+    
+    if (target.classList.contains('add-btn')) {
+        const category = target.dataset.category;
+        const tableBody = document.querySelector(`#${category}-table tbody`);
+        
+        // Prevent adding another input row if one already exists
+        if (tableBody.querySelector('.input-row')) return;
+
+        const inputRow = document.createElement('tr');
+        inputRow.classList.add('input-row');
+        inputRow.innerHTML = `
+            <td><input type="date" name="date"></td>
+            <td><input type="text" name="therapist" placeholder="Therapist Name"></td>
+            <td><input type="text" name="item" placeholder="Item/Service Description"></td>
+            <td><input type="number" name="amount" placeholder="0.00"></td>
+            <td>-</td>
+            <td><button class="confirm-btn" data-category="${category}">Confirm</button></td>
+        `;
+        tableBody.appendChild(inputRow);
+    }
+
+    if (target.classList.contains('confirm-btn')) {
+        if (confirm("Are you sure? You cannot edit this after confirming.")) {
+            // In a real app, you would gather the data from the input fields
+            // and send it to a backend endpoint like '/api/transaction/add'
+            alert("Confirmed! (This is a demo). Data would be saved and table refreshed.");
+            
+            // Example of what would happen on success:
+            const category = target.dataset.category;
+            loadBudgetsForRole(category); // Refresh the table
+        }
+    }
+    
+    if (target.classList.contains('edit-btn')) {
+        // Admin-only functionality
+        alert("Edit functionality for admins would be implemented here.");
+    }
+}
+
+// 5. Handle Logout
+function handleLogout() {
+    USER_ROLE = null;
+    mainApp.style.display = 'none';
+    loginScreen.style.display = 'block';
+    document.getElementById('username').value = '';
+    document.getElementById('password').value = '';
+}
+</script>
+
+</body>
+</html>
